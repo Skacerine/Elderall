@@ -1,0 +1,85 @@
+version: "3.8"
+
+services:
+  location-tracking-service:
+    build: ./location-tracking-service
+    container_name: location-tracking-service
+    ports:
+      - "3001:3001"
+    environment:
+      - PORT=3001
+      - CHECK_HOME_URL=http://check-home-outside-service:3002
+    networks:
+      - elderly-net
+
+  check-home-outside-service:
+    build: ./check-home-outside-service
+    container_name: check-home-outside-service
+    ports:
+      - "3002:3002"
+    environment:
+      - PORT=3002
+      - HOME_LAT=1.3521
+      - HOME_LNG=103.8198
+      - BOUNDARY_RADIUS=500
+    networks:
+      - elderly-net
+
+  check-radius-service:
+    build: ./check-radius-service
+    container_name: check-radius-service
+    ports:
+      - "3003:3003"
+    environment:
+      - PORT=3003
+      - LOCATION_TRACKING_URL=http://location-tracking-service:3001
+      - CHECK_HOME_URL=http://check-home-outside-service:3002
+    networks:
+      - elderly-net
+    depends_on:
+      - location-tracking-service
+      - check-home-outside-service
+
+  map-microservice:
+    build: ./map-microservice
+    container_name: map-microservice
+    ports:
+      - "3004:3004"
+    environment:
+      - PORT=3004
+      - CHECK_HOME_URL=http://check-home-outside-service:3002
+    networks:
+      - elderly-net
+    depends_on:
+      - check-home-outside-service
+
+  guardian-ui:
+    build: ./guardian-ui
+    container_name: guardian-ui
+    ports:
+      - "3000:3000"
+    environment:
+      - PORT=3000
+      - CHECK_RADIUS_URL=http://check-radius-service:3003
+      - MAP_SERVICE_URL=http://map-microservice:3004
+    networks:
+      - elderly-net
+    depends_on:
+      - check-radius-service
+      - map-microservice
+
+  elderly-device:
+    build: ./elderly-device
+    container_name: elderly-device
+    environment:
+      - LOCATION_TRACKING_URL=http://location-tracking-service:3001
+      - ELDERLY_ID=elderly-001
+      - INTERVAL_MS=5000
+    networks:
+      - elderly-net
+    depends_on:
+      - location-tracking-service
+
+networks:
+  elderly-net:
+    driver: bridge
