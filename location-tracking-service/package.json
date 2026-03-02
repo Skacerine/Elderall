@@ -1,0 +1,7 @@
+{
+  "name": "location-tracking-service",
+  "version": "1.0.0",
+  "description": "Stores and serves elderly GPS coordinates",
+  "main": "index.js",
+  "scripts": { "start": "node index.js" }
+}

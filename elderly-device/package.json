@@ -1,0 +1,9 @@
+{
+  "name": "elderly-device",
+  "version": "1.0.0",
+  "description": "Simulated elderly device that posts GPS coordinates",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  }
+}

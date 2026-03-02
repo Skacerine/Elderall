@@ -1,0 +1,567 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Guardian Dashboard — Elderly Tracking</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #0f172a;
+      color: #e2e8f0;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* ── Header ── */
+    header {
+      background: #1e293b;
+      border-bottom: 1px solid #334155;
+      padding: 12px 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    header h1 { font-size: 18px; font-weight: 700; color: #f8fafc; }
+    header h1 span { color: #60a5fa; }
+
+    .connection-badge {
+      display: flex; align-items: center; gap: 6px;
+      font-size: 12px; padding: 4px 10px;
+      border-radius: 999px; background: #334155;
+    }
+    .dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: #475569;
+      transition: background 0.3s;
+    }
+    .dot.connected { background: #22c55e; animation: pulse 2s infinite; }
+    .dot.disconnected { background: #ef4444; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.5} }
+
+    /* ── Main layout ── */
+    main {
+      display: flex;
+      flex: 1;
+      overflow: hidden;
+    }
+
+    /* ── Sidebar ── */
+    aside {
+      width: 320px;
+      background: #1e293b;
+      border-right: 1px solid #334155;
+      display: flex;
+      flex-direction: column;
+      overflow-y: auto;
+    }
+
+    .sidebar-section {
+      padding: 16px;
+      border-bottom: 1px solid #334155;
+    }
+    .sidebar-section h2 {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: #64748b;
+      margin-bottom: 12px;
+    }
+
+    /* Elderly selector */
+    .elderly-selector {
+      display: flex; gap: 8px;
+    }
+    .elderly-selector input {
+      flex: 1; background: #0f172a; border: 1px solid #334155;
+      color: #e2e8f0; padding: 8px 10px; border-radius: 6px; font-size: 13px;
+    }
+    .elderly-selector button {
+      background: #3b82f6; color: white; border: none;
+      padding: 8px 12px; border-radius: 6px; cursor: pointer; font-size: 13px;
+    }
+    .elderly-selector button:hover { background: #2563eb; }
+
+    /* Status card */
+    .status-card {
+      background: #0f172a;
+      border-radius: 8px;
+      padding: 14px;
+      border: 1px solid #334155;
+    }
+    .status-row {
+      display: flex; justify-content: space-between; align-items: center;
+      margin-bottom: 8px;
+    }
+    .status-row:last-child { margin-bottom: 0; }
+    .status-label { font-size: 12px; color: #64748b; }
+    .status-value { font-size: 13px; font-weight: 500; color: #e2e8f0; font-family: monospace; }
+
+    .status-badge {
+      display: inline-flex; align-items: center; gap: 5px;
+      padding: 4px 10px; border-radius: 999px; font-size: 12px; font-weight: 600;
+    }
+    .status-badge.INSIDE  { background: #14532d; color: #86efac; }
+    .status-badge.OUTSIDE { background: #7f1d1d; color: #fca5a5; }
+    .status-badge.UNKNOWN { background: #1e293b; color: #94a3b8; }
+    .status-badge.NO_DATA { background: #1e293b; color: #94a3b8; }
+
+    /* Microservice flow */
+    .flow-step {
+      display: flex; align-items: flex-start; gap: 10px;
+      margin-bottom: 10px; font-size: 12px;
+    }
+    .step-num {
+      background: #334155; color: #94a3b8;
+      width: 22px; height: 22px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 11px; font-weight: 700; flex-shrink: 0;
+      transition: background 0.3s, color 0.3s;
+    }
+    .step-num.active { background: #3b82f6; color: white; }
+    .step-num.done   { background: #16a34a; color: white; }
+    .step-text { color: #94a3b8; line-height: 1.4; }
+    .step-text strong { color: #cbd5e1; }
+
+    /* Manual trigger */
+    .location-grid {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 10px;
+    }
+    .location-grid label { font-size: 11px; color: #64748b; display: block; margin-bottom: 3px; }
+    .location-grid input {
+      width: 100%; background: #0f172a; border: 1px solid #334155;
+      color: #e2e8f0; padding: 6px 8px; border-radius: 5px; font-size: 12px;
+    }
+    .quick-locations { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 10px; }
+    .quick-btn {
+      font-size: 11px; padding: 3px 8px; border-radius: 4px; cursor: pointer;
+      border: 1px solid #475569; background: #1e293b; color: #cbd5e1;
+    }
+    .quick-btn:hover { background: #334155; }
+    .trigger-btn {
+      width: 100%; background: #7c3aed; color: white; border: none;
+      padding: 9px; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: 500;
+    }
+    .trigger-btn:hover { background: #6d28d9; }
+
+    /* Log */
+    .log-area {
+      flex: 1;
+      background: #020617;
+      font-family: monospace;
+      font-size: 11px;
+      overflow-y: auto;
+      padding: 10px;
+    }
+    .log-entry {
+      padding: 2px 0;
+      border-bottom: 1px solid #0f172a;
+      color: #475569;
+    }
+    .log-entry .log-time { color: #334155; }
+    .log-entry .log-msg  { color: #64748b; }
+    .log-entry.info  .log-msg { color: #60a5fa; }
+    .log-entry.warn  .log-msg { color: #fbbf24; }
+    .log-entry.ok    .log-msg { color: #34d399; }
+    .log-entry.error .log-msg { color: #f87171; }
+
+    /* Map */
+    #map {
+      flex: 1;
+      z-index: 0;
+    }
+
+    /* Alert banner */
+    #alert-banner {
+      position: fixed; top: 60px; left: 50%; transform: translateX(-50%);
+      background: #7f1d1d; color: #fca5a5; border: 1px solid #ef4444;
+      padding: 10px 20px; border-radius: 8px; font-size: 14px; font-weight: 600;
+      display: none; z-index: 1000; box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+      animation: fadeIn 0.3s ease;
+    }
+    @keyframes fadeIn { from{opacity:0;transform:translateX(-50%) translateY(-8px)} to{opacity:1;transform:translateX(-50%) translateY(0)} }
+  </style>
+</head>
+<body>
+
+<div id="alert-banner">⚠️ ALERT: Elderly person has left the safe zone!</div>
+
+<header>
+  <h1>👴 Guardian <span>Dashboard</span></h1>
+  <div class="connection-badge">
+    <div class="dot" id="sse-dot"></div>
+    <span id="sse-label">Disconnected</span>
+  </div>
+</header>
+
+<main>
+  <!-- ── Sidebar ── -->
+  <aside>
+
+    <!-- Elderly Selection -->
+    <div class="sidebar-section">
+      <h2>Tracking Target</h2>
+      <div class="elderly-selector">
+        <input id="elderly-id-input" type="text" value="elderly-001" placeholder="elderlyID" />
+        <button onclick="startTracking()">Track</button>
+      </div>
+    </div>
+
+    <!-- Status -->
+    <div class="sidebar-section">
+      <h2>Current Status</h2>
+      <div class="status-card">
+        <div class="status-row">
+          <span class="status-label">Status</span>
+          <span id="status-badge" class="status-badge UNKNOWN">— No Data</span>
+        </div>
+        <div class="status-row">
+          <span class="status-label">Elderly ID</span>
+          <span id="display-elderly-id" class="status-value">—</span>
+        </div>
+        <div class="status-row">
+          <span class="status-label">Latitude</span>
+          <span id="display-lat" class="status-value">—</span>
+        </div>
+        <div class="status-row">
+          <span class="status-label">Longitude</span>
+          <span id="display-lng" class="status-value">—</span>
+        </div>
+        <div class="status-row">
+          <span class="status-label">Distance from Home</span>
+          <span id="display-distance" class="status-value">—</span>
+        </div>
+        <div class="status-row">
+          <span class="status-label">Boundary Radius</span>
+          <span id="display-radius" class="status-value">—</span>
+        </div>
+        <div class="status-row">
+          <span class="status-label">Last Update</span>
+          <span id="display-time" class="status-value">—</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Microservice Flow Visualiser -->
+    <div class="sidebar-section">
+      <h2>Service Flow (Live)</h2>
+      <div id="flow-steps">
+        <div class="flow-step"><div class="step-num" id="step-0">0</div><div class="step-text"><strong>Elderly Device</strong> → POST coordinates</div></div>
+        <div class="flow-step"><div class="step-num" id="step-1">1</div><div class="step-text"><strong>Guardian UI</strong> → GET status</div></div>
+        <div class="flow-step"><div class="step-num" id="step-2">2</div><div class="step-text"><strong>Check Radius</strong> → GET latest location</div></div>
+        <div class="flow-step"><div class="step-num" id="step-3">3</div><div class="step-text"><strong>Location Tracking</strong> → GET coordinates</div></div>
+        <div class="flow-step"><div class="step-num" id="step-4">4</div><div class="step-text"><strong>Check Home/Outside</strong> → compute status</div></div>
+        <div class="flow-step"><div class="step-num" id="step-5">5</div><div class="step-text"><strong>Location Tracking</strong> → POST to CheckHome</div></div>
+        <div class="flow-step"><div class="step-num" id="step-6">6</div><div class="step-text"><strong>Map Service</strong> → GET coordinates + status</div></div>
+        <div class="flow-step"><div class="step-num" id="step-7">7</div><div class="step-text"><strong>Check Home/Outside</strong> → map tile data</div></div>
+        <div class="flow-step"><div class="step-num" id="step-8">8</div><div class="step-text"><strong>Map Service</strong> → send map to Guardian</div></div>
+      </div>
+    </div>
+
+    <!-- Manual Location Trigger -->
+    <div class="sidebar-section">
+      <h2>Manual Location Simulator</h2>
+      <div class="quick-locations">
+        <button class="quick-btn" onclick="setCoords(1.3521, 103.8198)">🏠 Home</button>
+        <button class="quick-btn" onclick="setCoords(1.3528, 103.8205)">🌳 Park</button>
+        <button class="quick-btn" onclick="setCoords(1.3560, 103.8250)">🏪 Market</button>
+        <button class="quick-btn" onclick="setCoords(1.3600, 103.8300)">🏬 Mall</button>
+        <button class="quick-btn" onclick="setCoords(1.3495, 103.8150)">🏥 Clinic</button>
+      </div>
+      <div class="location-grid">
+        <div>
+          <label>Latitude</label>
+          <input id="manual-lat" type="number" step="0.0001" value="1.3521" />
+        </div>
+        <div>
+          <label>Longitude</label>
+          <input id="manual-lng" type="number" step="0.0001" value="103.8198" />
+        </div>
+      </div>
+      <button class="trigger-btn" onclick="sendManualLocation()">📍 Send Location</button>
+    </div>
+
+    <!-- Live Log -->
+    <div class="sidebar-section" style="padding-bottom:4px">
+      <h2>Event Log</h2>
+    </div>
+    <div class="log-area" id="log-area"></div>
+
+  </aside>
+
+  <!-- ── Map ── -->
+  <div id="map"></div>
+</main>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+  // ── Map Setup ──────────────────────────────────────────────────
+  const HOME = { lat: 1.3521, lng: 103.8198 };
+  const BOUNDARY_RADIUS = 500;
+
+  const map = L.map('map').setView([HOME.lat, HOME.lng], 15);
+
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '© OpenStreetMap contributors',
+    maxZoom: 19,
+  }).addTo(map);
+
+  // Home marker
+  const homeIcon = L.divIcon({
+    className: '',
+    html: `<div style="font-size:28px;line-height:1;filter:drop-shadow(0 2px 4px rgba(0,0,0,.6))">🏠</div>`,
+    iconAnchor: [14, 28],
+  });
+  L.marker([HOME.lat, HOME.lng], { icon: homeIcon })
+    .addTo(map)
+    .bindTooltip('Home / Safe Zone Centre', { permanent: false });
+
+  // Boundary circle
+  let boundaryCircle = L.circle([HOME.lat, HOME.lng], {
+    radius: BOUNDARY_RADIUS,
+    color: '#22c55e',
+    weight: 2,
+    fillColor: '#22c55e',
+    fillOpacity: 0.08,
+    dashArray: '6 4',
+  }).addTo(map);
+
+  // Elderly marker
+  const elderlyIconInside = L.divIcon({
+    className: '',
+    html: `<div style="font-size:32px;line-height:1;filter:drop-shadow(0 2px 4px rgba(0,0,0,.6))">👴</div>`,
+    iconAnchor: [16, 32],
+  });
+  const elderlyIconOutside = L.divIcon({
+    className: '',
+    html: `<div style="background:#ef4444;border-radius:50%;width:36px;height:36px;display:flex;align-items:center;justify-content:center;font-size:20px;border:2px solid white;box-shadow:0 2px 8px rgba(0,0,0,.5)">👴</div>`,
+    iconAnchor: [18, 18],
+  });
+
+  let elderlyMarker = null;
+  let pathPolyline = null;
+  const pathPoints = [];
+
+  function updateElderlyOnMap(lat, lng, status) {
+    const icon = status === 'INSIDE' ? elderlyIconInside : elderlyIconOutside;
+    const circleColor = status === 'INSIDE' ? '#22c55e' : '#ef4444';
+
+    // Update boundary circle color
+    boundaryCircle.setStyle({ color: circleColor, fillColor: circleColor });
+
+    if (!elderlyMarker) {
+      elderlyMarker = L.marker([lat, lng], { icon })
+        .addTo(map)
+        .bindTooltip('Elderly Person', { permanent: false });
+    } else {
+      elderlyMarker.setLatLng([lat, lng]);
+      elderlyMarker.setIcon(icon);
+    }
+
+    // Track path
+    pathPoints.push([lat, lng]);
+    if (pathPolyline) { map.removeLayer(pathPolyline); }
+    pathPolyline = L.polyline(pathPoints, {
+      color: '#60a5fa', weight: 2, opacity: 0.5, dashArray: '4 4'
+    }).addTo(map);
+
+    // Pan map to elderly
+    map.panTo([lat, lng], { animate: true, duration: 0.5 });
+  }
+
+  // ── State ──────────────────────────────────────────────────────
+  let currentElderlyID = 'elderly-001';
+  let sseSource = null;
+
+  // ── Logger ────────────────────────────────────────────────────
+  const logArea = document.getElementById('log-area');
+  function log(msg, type = 'info') {
+    const entry = document.createElement('div');
+    entry.className = `log-entry ${type}`;
+    const now = new Date().toLocaleTimeString();
+    entry.innerHTML = `<span class="log-time">[${now}]</span> <span class="log-msg">${msg}</span>`;
+    logArea.prepend(entry);
+    if (logArea.children.length > 200) logArea.lastChild.remove();
+  }
+
+  // ── Flow Step Animator ────────────────────────────────────────
+  function animateStep(stepNum, done = false) {
+    const el = document.getElementById(`step-${stepNum}`);
+    if (!el) return;
+    el.classList.remove('active', 'done');
+    el.classList.add('active');
+    setTimeout(() => {
+      el.classList.remove('active');
+      if (done) el.classList.add('done');
+    }, 600);
+  }
+
+  function resetFlowSteps() {
+    for (let i = 0; i <= 8; i++) {
+      const el = document.getElementById(`step-${i}`);
+      if (el) { el.classList.remove('active', 'done'); }
+    }
+  }
+
+  // ── Status Display ────────────────────────────────────────────
+  function updateStatusDisplay(data) {
+    const badge = document.getElementById('status-badge');
+    const status = data.status || 'UNKNOWN';
+    badge.className = `status-badge ${status}`;
+    const icons = { INSIDE: '✅ INSIDE', OUTSIDE: '⚠️ OUTSIDE', UNKNOWN: '❓ UNKNOWN', NO_DATA: '⏳ NO DATA' };
+    badge.textContent = icons[status] || status;
+
+    document.getElementById('display-elderly-id').textContent = data.elderlyID || '—';
+    document.getElementById('display-lat').textContent = data.latitude?.toFixed(6) || '—';
+    document.getElementById('display-lng').textContent = data.longitude?.toFixed(6) || '—';
+    document.getElementById('display-distance').textContent = data.distanceFromHome != null ? `${data.distanceFromHome}m` : '—';
+    document.getElementById('display-radius').textContent = data.boundaryRadius ? `${data.boundaryRadius}m` : '—';
+    document.getElementById('display-time').textContent = data.timestamp ? new Date(data.timestamp).toLocaleTimeString() : '—';
+
+    // Alert banner
+    const banner = document.getElementById('alert-banner');
+    if (status === 'OUTSIDE') {
+      banner.style.display = 'block';
+      setTimeout(() => { banner.style.display = 'none'; }, 5000);
+    } else {
+      banner.style.display = 'none';
+    }
+
+    // Map update
+    if (data.latitude && data.longitude) {
+      updateElderlyOnMap(data.latitude, data.longitude, status);
+    }
+
+    // Animate flow completion
+    animateStep(1, true); animateStep(2, true); animateStep(3, true);
+    animateStep(4, true); animateStep(6, true); animateStep(7, true); animateStep(8, true);
+  }
+
+  // ── SSE Connection ────────────────────────────────────────────
+  function connectSSE(elderlyID) {
+    if (sseSource) { sseSource.close(); }
+
+    const dot = document.getElementById('sse-dot');
+    const label = document.getElementById('sse-label');
+
+    dot.className = 'dot';
+    label.textContent = 'Connecting…';
+    log(`Subscribing to SSE stream for ${elderlyID}…`, 'info');
+
+    sseSource = new EventSource(`/api/subscribe?elderlyID=${elderlyID}`);
+
+    sseSource.onopen = () => {
+      dot.className = 'dot connected';
+      label.textContent = 'Live (SSE)';
+      log('✅ SSE connected — receiving real-time updates', 'ok');
+    };
+
+    sseSource.onmessage = (e) => {
+      try {
+        const data = JSON.parse(e.data);
+        if (!data.status) return;
+        const icon = data.status === 'INSIDE' ? '🏠' : '⚠️';
+        log(`${icon} SSE update: ${data.status} | ${data.distanceFromHome}m from home`, data.status === 'INSIDE' ? 'ok' : 'warn');
+        animateStep(0); animateStep(5);
+        updateStatusDisplay(data);
+        // Also fetch fresh map data
+        fetchMapData(elderlyID);
+      } catch {}
+    };
+
+    sseSource.onerror = () => {
+      dot.className = 'dot disconnected';
+      label.textContent = 'Disconnected';
+      log('❌ SSE disconnected — retrying…', 'error');
+    };
+  }
+
+  // ── API Calls ─────────────────────────────────────────────────
+  async function fetchStatus(elderlyID) {
+    log(`→ [Step 1] GET /api/status?elderlyID=${elderlyID}`, 'info');
+    animateStep(1);
+    try {
+      const res = await fetch(`/api/status?elderlyID=${elderlyID}`);
+      const data = await res.json();
+      log(`← [Step 1] Status: ${data.status || 'unknown'}`, 'ok');
+      animateStep(2, true);
+      return data;
+    } catch (err) {
+      log(`✗ Status fetch failed: ${err.message}`, 'error');
+      return null;
+    }
+  }
+
+  async function fetchMapData(elderlyID) {
+    log(`→ [Step 6] GET /api/map-data?elderlyID=${elderlyID}`, 'info');
+    animateStep(6);
+    try {
+      const res = await fetch(`/api/map-data?elderlyID=${elderlyID}`);
+      const data = await res.json();
+      log(`← [Steps 7,8] Map data received: status=${data.status}`, 'ok');
+      animateStep(7, true); animateStep(8, true);
+      if (data.status && data.latitude) updateStatusDisplay(data);
+    } catch (err) {
+      log(`✗ Map data fetch failed: ${err.message}`, 'error');
+    }
+  }
+
+  async function startTracking() {
+    currentElderlyID = document.getElementById('elderly-id-input').value.trim() || 'elderly-001';
+    resetFlowSteps();
+    log(`▶ Starting tracking for: ${currentElderlyID}`, 'info');
+    connectSSE(currentElderlyID);
+    const status = await fetchStatus(currentElderlyID);
+    if (status) { updateStatusDisplay(status); await fetchMapData(currentElderlyID); }
+  }
+
+  async function sendManualLocation() {
+    const lat = parseFloat(document.getElementById('manual-lat').value);
+    const lng = parseFloat(document.getElementById('manual-lng').value);
+    const elderlyID = currentElderlyID;
+
+    log(`→ [Step 0] Manual POST coordinates: (${lat.toFixed(4)}, ${lng.toFixed(4)})`, 'info');
+    animateStep(0);
+
+    try {
+      const res = await fetch('/api/simulate-location', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ elderlyID, latitude: lat, longitude: lng, timestamp: new Date().toISOString() }),
+      });
+      const data = await res.json();
+      log(`← [Step 0] Location accepted`, 'ok');
+      animateStep(0, true); animateStep(5, true);
+      // Refresh status after a short delay
+      setTimeout(async () => {
+        const status = await fetchStatus(elderlyID);
+        if (status) { updateStatusDisplay(status); await fetchMapData(elderlyID); }
+      }, 800);
+    } catch (err) {
+      log(`✗ Manual location failed: ${err.message}`, 'error');
+    }
+  }
+
+  function setCoords(lat, lng) {
+    document.getElementById('manual-lat').value = lat;
+    document.getElementById('manual-lng').value = lng;
+  }
+
+  // ── Click on map to set manual location ─────────────────────
+  map.on('click', (e) => {
+    document.getElementById('manual-lat').value = e.latlng.lat.toFixed(6);
+    document.getElementById('manual-lng').value = e.latlng.lng.toFixed(6);
+    log(`📌 Map clicked: (${e.latlng.lat.toFixed(4)}, ${e.latlng.lng.toFixed(4)}) — click "Send Location" to use`, 'info');
+  });
+
+  // ── Init ──────────────────────────────────────────────────────
+  log('Guardian Dashboard loaded. Click "Track" to begin.', 'info');
+  startTracking();
+</script>
+</body>
+</html>
